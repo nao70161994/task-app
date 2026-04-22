@@ -2,6 +2,7 @@ import json
 import os
 import calendar
 from datetime import date, timedelta
+from threading import Thread
 from kivy.app import App
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.textinput import TextInput
@@ -15,6 +16,8 @@ from kivy.core.window import Window
 from kivy.metrics import dp
 
 TASKS_FILE = 'tasks.json'
+APP_VERSION = '1.1'
+GITHUB_REPO = 'nao70161994/task-app'
 
 PRIORITY_COLORS = {
     'high':   (0.9, 0.2, 0.2, 1),
@@ -147,6 +150,7 @@ class TaskApp(App):
         root.add_widget(scroll)
         self._render()
         self._notify_due()
+        Thread(target=self._check_update, daemon=True).start()
         return root
 
     # ── フィルター操作 ────────────────────────────────────────
@@ -206,6 +210,76 @@ class TaskApp(App):
                 )
         except Exception:
             pass
+
+    # ── バージョンチェック ────────────────────────────────────
+
+    def _check_update(self):
+        try:
+            import urllib.request
+            import json as _json
+            url = f'https://api.github.com/repos/{GITHUB_REPO}/releases/latest'
+            req = urllib.request.Request(url, headers={'User-Agent': 'TaskApp'})
+            with urllib.request.urlopen(req, timeout=8) as r:
+                data = _json.loads(r.read())
+            latest = data.get('tag_name', '').lstrip('v')
+            release_url = data.get('html_url', '')
+            if latest and self._version_gt(latest, APP_VERSION):
+                from kivy.clock import Clock
+                Clock.schedule_once(lambda _: self._show_update_popup(latest, release_url))
+        except Exception:
+            pass
+
+    def _version_gt(self, a, b):
+        def to_tuple(v):
+            try:
+                return tuple(int(x) for x in v.split('.'))
+            except ValueError:
+                return (0,)
+        return to_tuple(a) > to_tuple(b)
+
+    def _show_update_popup(self, new_version, release_url):
+        content = BoxLayout(orientation='vertical', padding=dp(16), spacing=dp(10))
+        content.add_widget(Label(
+            text=f'新しいバージョン v{new_version} があります\n（現在: v{APP_VERSION}）',
+            font_size=dp(15),
+            halign='center',
+            color=(1, 1, 1, 1),
+        ))
+        btn_row = BoxLayout(size_hint_y=None, height=dp(48), spacing=dp(8))
+        dl_btn = Button(text='ダウンロード', background_color=(0.2, 0.6, 1, 1), font_size=dp(15))
+        skip_btn = Button(text='後で', background_color=(0.35, 0.35, 0.35, 1), font_size=dp(14))
+        btn_row.add_widget(dl_btn)
+        btn_row.add_widget(skip_btn)
+        content.add_widget(btn_row)
+
+        popup = Popup(
+            title='アップデート',
+            content=content,
+            size_hint=(0.85, None),
+            height=dp(200),
+        )
+
+        def on_download(_):
+            popup.dismiss()
+            try:
+                from kivy.utils import platform
+                if platform == 'android':
+                    from jnius import autoclass
+                    PythonActivity = autoclass('org.kivy.android.PythonActivity')
+                    Intent = autoclass('android.content.Intent')
+                    Uri = autoclass('android.net.Uri')
+                    intent = Intent(Intent.ACTION_VIEW)
+                    intent.setData(Uri.parse(release_url))
+                    PythonActivity.mActivity.startActivity(intent)
+                else:
+                    import webbrowser
+                    webbrowser.open(release_url)
+            except Exception:
+                pass
+
+        dl_btn.bind(on_press=on_download)
+        skip_btn.bind(on_press=lambda _: popup.dismiss())
+        popup.open()
 
     # ── 追加・編集ポップアップ ────────────────────────────────
 

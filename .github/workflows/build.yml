@@ -29,3 +29,16 @@ jobs:
         with:
           name: task-app-debug
           path: bin/*.apk
+
+      - name: Create GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION=$(grep '^version' buildozer.spec | cut -d'=' -f2 | tr -d ' ')
+          gh release delete "v${VERSION}" --yes 2>/dev/null || true
+          git push origin --delete "v${VERSION}" 2>/dev/null || true
+          gh release create "v${VERSION}" bin/*.apk \
+            --title "v${VERSION}" \
+            --notes "自動ビルド" \
+            --latest \
+            --repo ${{ github.repository }}
