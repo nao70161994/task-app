@@ -12,6 +12,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Get Japanese font
+        run: |
+          sudo apt-get install -y fonts-noto-cjk
+          cp /usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc .
+
       - name: Build APK
         run: |
           docker run --rm \

@@ -59,6 +59,10 @@ def _next_due(due_str, repeat):
 
 class TaskApp(App):
     def build(self):
+        from kivy.core.text import LabelBase
+        if os.path.exists('NotoSansCJK-Regular.ttc'):
+            LabelBase.register(name='Roboto', fn_regular='NotoSansCJK-Regular.ttc')
+
         Window.clearcolor = (0.1, 0.1, 0.1, 1)
         self.tasks = self._load()
         self.search_text = ''
