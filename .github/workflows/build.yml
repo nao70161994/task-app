@@ -13,11 +13,11 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Build APK
-        uses: ArtemSBulgakov/buildozer-action@v1
-        env:
-          USER: root
-        with:
-          command: buildozer android debug
+        run: |
+          docker run --rm \
+            -v ${{ github.workspace }}:/home/user/hostcwd \
+            kivy/buildozer:latest \
+            android debug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
