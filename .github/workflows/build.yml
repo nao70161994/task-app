@@ -15,7 +15,7 @@ jobs:
       - name: Build APK
         uses: ArtemSBulgakov/buildozer-action@v1
         env:
-          USER: runner
+          USER: root
         with:
           command: buildozer android debug
 
