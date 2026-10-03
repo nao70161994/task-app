@@ -68,7 +68,11 @@ class TaskApp(App):
             LabelBase.register(name='Roboto', fn_regular='NotoSansCJK-Regular.ttc')
 
         Window.clearcolor = (0.1, 0.1, 0.1, 1)
-        self.store = TaskStore(Path(self.user_data_dir) / 'tasks.json', Path.cwd() / 'tasks.json')
+        data_dir = Path(self.user_data_dir)
+        protected_legacy = data_dir / 'task-app-legacy' / 'tasks.json'
+        legacy = protected_legacy if (protected_legacy.exists() or
+                 protected_legacy.with_name('tasks.json.bak').exists()) else Path.cwd() / 'tasks.json'
+        self.store = TaskStore(data_dir / 'tasks.json', legacy)
         self.tasks = self._load()
         self._saved_tasks = copy.deepcopy(self.tasks)
         self.search_text = ''

@@ -10,6 +10,7 @@
 - `updates.py`: 安定版バージョン比較、GitHub Release応答検証、通信。
 - `tools/check_release.py`: バージョン・タグ・アプリIDの整合性検証。
 - `tools/verify_apk.py`: 公開前のAPK署名と旧APKとの互換性検証。
+- `p4a_hook.py` / `android/TaskDataPreserver.java`: 更新時の再展開前に旧データを退避。未対応の起動ソースならビルドを停止。
 - `tests/`: Kivy不要のunittest回帰テスト。
 
 ## テスト・ビルド

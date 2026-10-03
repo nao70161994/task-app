@@ -5,6 +5,10 @@ Kivy / python-for-android のAndroidタスク管理アプリ。アプリIDは既
 
 ## タスク保存と旧データの引き継ぎ
 
+- Android更新時はp4aがPython起動前に `files/app` を削除して再展開するため、
+  ビルドhookでその直前に旧 `tasks.json` と `.bak` を `files/task-app-legacy` へfsync・atomicコピーする。
+  コピー失敗時は再展開を停止して原本を保持する。Python起動後にこの退避先から移行する。
+  未対応のp4aソース構造ではビルドを失敗させ、安全処理の抜けを防ぐ。
 - 保存先は Kivy `App.user_data_dir/tasks.json`（Androidではアプリ専用領域）。
   以前の作業ディレクトリ内 `tasks.json` は、新しい保存先とバックアップが両方ない初回だけ読み込む。
   移行時は元のJSONのバイト列を新しい保存先と `.bak` にコピーし、旧ファイルを削除しない。
@@ -26,7 +30,7 @@ Kivy / python-for-android のAndroidタスク管理アプリ。アプリIDは既
 
 ### 手動復旧
 
-アプリを終了し、新保存先の `tasks.json`、`.bak`、`.corrupt-*` と旧保存先を全て保管する。
+アプリを終了し、新保存先の `tasks.json`、`.bak`、`.corrupt-*` と旧保存先・`files/task-app-legacy` を全て保管する。
 有効なJSONを確認して新保存先の `tasks.json` に復元してから再起動する。
 Androidのアプリ専用領域は通常のファイルマネージャーでは見えないため、利用可能な端末の
 バックアップ手段・開発用端末の `run-as` / adb等が必要。アンインストールや「ストレージを消去」は
@@ -45,6 +49,7 @@ python -m compileall -q main.py task_storage.py updates.py app_version.py
 
 テスト対象: atomic置換失敗、fsync失敗、バックアップ失敗、破損・欠落・復旧失敗、
 旧データ移行、空配列優先、未知の項目、バージョン正規化、不正タグ、API失敗、APK署名・メタデータ判定。
+Java退避処理はJDKでコンパイルしてファイル退避・削除後の維持・失敗時停止も検証する。
 GitHub ActionsはPython 3.10 / 3.12でテストしてからdebug APKをビルドする。
 PR・main push・手動実行は検証用Artifactsのみを生成し、Releaseを作成しない。
 
@@ -106,4 +111,5 @@ Repository Variable `ANDROID_SIGNING_SHA256` に実際に配布したAPKの署�
 - [Buildozer バージョン取得設定](https://buildozer.readthedocs.io/en/latest/specifications/)
 - [Buildozer Android設定](https://github.com/kivy/buildozer/blob/master/buildozer/default.spec)
 - [Android アプリ署名と更新の互換性](https://developer.android.com/studio/publish/app-signing)
+- [p4a SDL2起動時の再展開](https://github.com/kivy/python-for-android/blob/develop/pythonforandroid/bootstraps/sdl2/build/src/main/java/org/kivy/android/PythonActivity.java)
 - [gh release create](https://cli.github.com/manual/gh_release_create)
