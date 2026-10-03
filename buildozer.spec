@@ -3,8 +3,13 @@ title = タスク管理
 package.name = taskmanager
 package.domain = com.example
 source.dir = .
+source.exclude_dirs = tests,tools
+source.exclude_patterns = tasks.json*,*.tmp,*.jks,*.keystore
 source.include_exts = py,png,jpg,kv,atlas,json,ttc,ttf,otf
-version = 1.1
+version.regex = APP_VERSION = ['\"](.*)['\"]
+version.filename = app_version.py
+android.numeric_version = 10200
+android.release_artifact = apk
 requirements = python3,kivy,plyer
 orientation = portrait
 fullscreen = 0

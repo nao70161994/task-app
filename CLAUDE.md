@@ -1,40 +1,32 @@
-# CLAUDE.md
+# 開発ガイド
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+詳細は [README.md](README.md) を参照。
 
-## ビルド方法
+## 構成
 
-APKのビルドはGitHub Actionsで行う（Termux上では直接buildできない）。
+- `main.py`: Kivy UI、ユーザー操作、保存失敗時のメモリ状態復元・通知。
+- `task_storage.py`: 旧JSON互換性、atomic保存、バックアップ・破損復旧、初回移行。
+- `app_version.py`: versionNameの定義元、versionCode。
+- `updates.py`: 安定版バージョン比較、GitHub Release応答検証、通信。
+- `tools/check_release.py`: バージョン・タグ・アプリIDの整合性検証。
+- `tools/verify_apk.py`: 公開前のAPK署名と旧APKとの互換性検証。
+- `tests/`: Kivy不要のunittest回帰テスト。
 
-```bash
-git add .
-git commit -m "変更内容"
-git push origin main
+## テスト・ビルド
+
+```sh
+python -m unittest discover -s tests -v
+python tools/check_release.py
 ```
 
-pushすると `.github/workflows/build.yml` が自動実行される。完了後、GitHub ActionsのArtifactsから `task-app-debug.zip` をダウンロードして `.apk` をインストール。
+GitHub ActionsのPR / main push / workflow_dispatchでテストとdebug APKビルド。
+検証用Artifactsは `task-app-test-debug`。通常のpushではReleaseを作成しない。
+署名設定・更新互換性確認後、main上のコミットにバージョンと一致する新タグを付けて配布する。
+既存Release・tagは削除しない。既存ユーザーにアンインストールを要求しない。
 
-手動トリガーも可能（GitHub → Actions → Build APK → Run workflow）。
+## データを維持すること
 
-## ローカル動作確認（Termux）
-
-```bash
-pip install kivy
-python main.py
-```
-
-## アーキテクチャ
-
-単一ファイル構成（`main.py`）。`TaskApp` クラスがUIとデータ管理を両方担う。
-
-- `build()` — UIを構築し `_render()` で初期描画
-- `_render()` — `self.tasks` リストを全消去→再描画（状態変化のたびに呼ぶ）
-- `_load()` / `_save()` — `tasks.json` をJSONで読み書き（実行ディレクトリに保存）
-
-タスクのデータ構造：`{"text": str, "done": bool}`
-
-## buildozer.spec の主要設定
-
-- `requirements = python3,kivy` — 依存追加時はここに書く
-- `android.minapi = 21` — Android 5.0以上対応
-- `version` — APK更新時はバージョンを上げること
+旧作業ディレクトリの `tasks.json` を新しい `App.user_data_dir` へ非破壊コピーする。
+アプリIDを変更しない。旧形式、未知の追加項目、タグ、サブタスクを維持する。
+破損時に空リストを保存して元データを消さない。`.bak` と破損原本を保持する。
+タスクデータ・署名秘密鍵をコミットしたりAPKに含めたりしない。
