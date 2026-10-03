@@ -53,6 +53,12 @@ Java退避処理はJDKでコンパイルしてファイル退避・削除後の�
 GitHub ActionsはPython 3.10 / 3.12でテストしてからdebug APKをビルドする。
 PR・main push・手動実行は検証用Artifactsのみを生成し、Releaseを作成しない。
 
+ビルド用Dockerイメージはdigest `sha256:d5b9d1b5e3241fc6ec8eb78b8ecff9e975054645e26c07075c0a60d18c471c1f`、
+python-for-androidは `d2ee8c54d9d42375a95f18159e950a119671cf63` に固定する。
+2026-10-03のCIで未固定のmasterにpip内部の `BuildDependencyInstallError` ImportErrorが発生したため、
+[公式の修正コミット](https://github.com/kivy/python-for-android/commit/d2ee8c54d9d42375a95f18159e950a119671cf63)
+（ビルド用venvのクリアとpip自己更新の除去）を選択した。更新時はCIと実機動作を再検証する。
+
 ## 安全な更新配布
 
 `app_version.py` がversionNameの唯一の定義元。

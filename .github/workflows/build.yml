@@ -50,7 +50,7 @@ jobs:
         run: |
           docker run --rm \
             -v "$GITHUB_WORKSPACE:/home/user/hostcwd" \
-            kivy/buildozer:latest android debug
+            kivy/buildozer@sha256:d5b9d1b5e3241fc6ec8eb78b8ecff9e975054645e26c07075c0a60d18c471c1f android debug
       - uses: actions/upload-artifact@v4
         with:
           name: task-app-test-debug
@@ -102,7 +102,7 @@ jobs:
           cp /usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc .
           docker run --rm \
             -v "$GITHUB_WORKSPACE:/home/user/hostcwd" \
-            kivy/buildozer:latest android release
+            kivy/buildozer@sha256:d5b9d1b5e3241fc6ec8eb78b8ecff9e975054645e26c07075c0a60d18c471c1f android release
       - name: Sign and verify compatibility with the previous release
         env:
           KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
