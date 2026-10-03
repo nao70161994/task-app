@@ -57,7 +57,10 @@ PR・main push・手動実行は検証用Artifactsのみを生成し、Release�
 python-for-androidは `d2ee8c54d9d42375a95f18159e950a119671cf63` に固定する。
 2026-10-03のCIで未固定のmasterにpip内部の `BuildDependencyInstallError` ImportErrorが発生したため、
 [公式の修正コミット](https://github.com/kivy/python-for-android/commit/d2ee8c54d9d42375a95f18159e950a119671cf63)
-（ビルド用venvのクリアとpip自己更新の除去）を選択した。更新時はCIと実機動作を再検証する。
+（ビルド用venvのクリアとpip自己更新の除去）を選択した。
+このp4aの描画ライブラリはNDK 25bのライブラリ配置に対応しないため、
+同じコミットの推奨NDK 28cを使用する。対象APIは正しい `android.api = 33` で固定する
+（旧 `android.sdk` は無視されていた）。更新時はCIと実機動作を再検証する。
 
 ## 安全な更新配布
 

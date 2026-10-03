@@ -18,8 +18,8 @@ orientation = portrait
 fullscreen = 0
 android.permissions = WRITE_EXTERNAL_STORAGE,READ_EXTERNAL_STORAGE,VIBRATE,POST_NOTIFICATIONS,INTERNET
 android.minapi = 21
-android.ndk = 25b
-android.sdk = 33
+android.ndk = 28c
+android.api = 33
 android.accept_sdk_license = True
 
 [buildozer]
