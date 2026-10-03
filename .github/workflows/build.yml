@@ -1,46 +1,144 @@
-name: Build APK
+name: Test and Build APK
 
 on:
   push:
     branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
-jobs:
-  build:
-    runs-on: ubuntu-22.04
-    permissions:
-      contents: write
+permissions:
+  contents: read
 
+concurrency:
+  group: apk-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  test:
+    runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        python: ['3.10', '3.12']
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m unittest discover -s tests -v
+      - name: Test native data protection before Android extraction
+        run: |
+          mkdir -p "$RUNNER_TEMP/native-tests"
+          javac -d "$RUNNER_TEMP/native-tests" android/TaskDataPreserver.java tests/TaskDataPreserverTest.java
+          java -cp "$RUNNER_TEMP/native-tests" TaskDataPreserverTest
+      - run: python tools/check_release.py
+      - run: python -m compileall -q main.py task_storage.py updates.py app_version.py
 
+  build:
+    needs: test
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
       - name: Get Japanese font
         run: |
+          sudo apt-get update
           sudo apt-get install -y fonts-noto-cjk
           cp /usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc .
-
-      - name: Build APK
+      - name: Build test APK (never published as an update)
         run: |
           docker run --rm \
-            -v ${{ github.workspace }}:/home/user/hostcwd \
-            kivy/buildozer:latest \
-            android debug
-
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
+            -v "$GITHUB_WORKSPACE:/home/user/hostcwd" \
+            kivy/buildozer@sha256:d5b9d1b5e3241fc6ec8eb78b8ecff9e975054645e26c07075c0a60d18c471c1f android debug
+      - uses: actions/upload-artifact@v4
         with:
-          name: task-app-debug
+          name: task-app-test-debug
           path: bin/*.apk
+          if-no-files-found: error
 
-      - name: Create GitHub Release
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [test, build]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      RELEASE_TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Validate tag, main ancestry and signing configuration
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          EXPECTED_CERT: ${{ vars.ANDROID_SIGNING_SHA256 }}
         run: |
-          VERSION=$(grep '^version' buildozer.spec | cut -d'=' -f2 | tr -d ' ')
-          gh release delete "v${VERSION}" --yes 2>/dev/null || true
-          git push origin --delete "v${VERSION}" 2>/dev/null || true
-          gh release create "v${VERSION}" bin/*.apk \
-            --title "v${VERSION}" \
-            --notes "自動ビルド" \
-            --latest \
-            --repo ${{ github.repository }}
+          set -euo pipefail
+          python tools/check_release.py "$RELEASE_TAG"
+          git merge-base --is-ancestor HEAD origin/main
+          test -n "$KEYSTORE_BASE64"
+          test -n "$KEY_ALIAS"
+          test -n "$STORE_PASSWORD"
+          test -n "$KEY_PASSWORD"
+          test -n "$EXPECTED_CERT"
+          # A failure to query GitHub is fatal; existing releases are never overwritten.
+          gh api --paginate "repos/$GITHUB_REPOSITORY/releases" --jq '.[].tag_name' > "$RUNNER_TEMP/release-tags"
+          if grep -Fxq "$RELEASE_TAG" "$RUNNER_TEMP/release-tags"; then
+            echo 'Release already exists; refusing to overwrite it.' >&2
+            exit 1
+          fi
+          mkdir -p "$RUNNER_TEMP/prior-apk"
+          gh release download --repo "$GITHUB_REPOSITORY" --pattern '*.apk' --dir "$RUNNER_TEMP/prior-apk"
+      - name: Build unsigned release APK
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fonts-noto-cjk
+          cp /usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc .
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/home/user/hostcwd" \
+            kivy/buildozer@sha256:d5b9d1b5e3241fc6ec8eb78b8ecff9e975054645e26c07075c0a60d18c471c1f android release
+      - name: Sign and verify compatibility with the previous release
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          EXPECTED_CERT: ${{ vars.ANDROID_SIGNING_SHA256 }}
+        run: |
+          set -euo pipefail
+          SDK_TOOLS=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)
+          test -x "$SDK_TOOLS/apksigner"
+          VERSION=$(python tools/check_release.py "$RELEASE_TAG")
+          mapfile -t APKS < <(find bin -name '*release*.apk')
+          mapfile -t PREVIOUS < <(find "$RUNNER_TEMP/prior-apk" -name '*.apk')
+          test "${#APKS[@]}" -eq 1
+          test "${#PREVIOUS[@]}" -eq 1
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/signing.keystore"
+          chmod 600 "$RUNNER_TEMP/signing.keystore"
+          mkdir -p dist
+          "$SDK_TOOLS/zipalign" -f -p 4 "${APKS[0]}" "$RUNNER_TEMP/aligned.apk"
+          OUTPUT="dist/taskmanager-${VERSION}-release.apk"
+          "$SDK_TOOLS/apksigner" sign --ks "$RUNNER_TEMP/signing.keystore" \
+            --ks-key-alias "$KEY_ALIAS" --ks-pass env:STORE_PASSWORD --key-pass env:KEY_PASSWORD \
+            --out "$OUTPUT" "$RUNNER_TEMP/aligned.apk"
+          python tools/verify_apk.py --new "$OUTPUT" --previous "${PREVIOUS[0]}" \
+            --aapt "$SDK_TOOLS/aapt" --apksigner "$SDK_TOOLS/apksigner" --expected "$EXPECTED_CERT"
+          cd dist
+          sha256sum *.apk > SHA256SUMS
+      - name: Create a new release without deleting or replacing tags/assets
+        run: |
+          set -euo pipefail
+          # Stage as draft; users only see it after the APK and checksum uploads finish.
+          gh release create "$RELEASE_TAG" --verify-tag --draft \
+            --title "$RELEASE_TAG" --generate-notes --repo "$GITHUB_REPOSITORY"
+          gh release upload "$RELEASE_TAG" dist/*.apk dist/SHA256SUMS --repo "$GITHUB_REPOSITORY"
+          gh release edit "$RELEASE_TAG" --draft=false --latest --repo "$GITHUB_REPOSITORY"
+      - name: Remove temporary signing material
+        if: always()
+        run: rm -f "$RUNNER_TEMP/signing.keystore" "$RUNNER_TEMP/aligned.apk"

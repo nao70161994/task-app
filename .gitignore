@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+.buildozer/
+bin/
+dist/
+NotoSansCJK-Regular.ttc
+tasks.json*
+*.tmp
+*.jks
+*.keystore

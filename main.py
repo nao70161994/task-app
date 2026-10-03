@@ -1,4 +1,4 @@
-import json
+import copy
 import os
 import calendar
 from datetime import date, timedelta
@@ -15,9 +15,10 @@ from kivy.uix.spinner import Spinner
 from kivy.core.window import Window
 from kivy.metrics import dp
 
-TASKS_FILE = 'tasks.json'
-APP_VERSION = '1.1'
-GITHUB_REPO = 'nao70161994/task-app'
+from pathlib import Path
+from app_version import APP_VERSION
+from task_storage import TaskStore, StorageError
+from updates import fetch_update, version_gt
 
 PRIORITY_COLORS = {
     'high':   (0.9, 0.2, 0.2, 1),
@@ -67,7 +68,13 @@ class TaskApp(App):
             LabelBase.register(name='Roboto', fn_regular='NotoSansCJK-Regular.ttc')
 
         Window.clearcolor = (0.1, 0.1, 0.1, 1)
+        data_dir = Path(self.user_data_dir)
+        protected_legacy = data_dir / 'task-app-legacy' / 'tasks.json'
+        legacy = protected_legacy if (protected_legacy.exists() or
+                 protected_legacy.with_name('tasks.json.bak').exists()) else Path.cwd() / 'tasks.json'
+        self.store = TaskStore(data_dir / 'tasks.json', legacy)
         self.tasks = self._load()
+        self._saved_tasks = copy.deepcopy(self.tasks)
         self.search_text = ''
         self.filter_category = ''
         self.filter_priority = ''
@@ -149,6 +156,8 @@ class TaskApp(App):
         root.add_widget(tag_scroll)
         root.add_widget(scroll)
         self._render()
+        if self.store.notice:
+            self._storage_message(self.store.notice)
         self._notify_due()
         Thread(target=self._check_update, daemon=True).start()
         return root
@@ -214,28 +223,14 @@ class TaskApp(App):
     # ── バージョンチェック ────────────────────────────────────
 
     def _check_update(self):
-        try:
-            import urllib.request
-            import json as _json
-            url = f'https://api.github.com/repos/{GITHUB_REPO}/releases/latest'
-            req = urllib.request.Request(url, headers={'User-Agent': 'TaskApp'})
-            with urllib.request.urlopen(req, timeout=8) as r:
-                data = _json.loads(r.read())
-            latest = data.get('tag_name', '').lstrip('v')
-            release_url = data.get('html_url', '')
-            if latest and self._version_gt(latest, APP_VERSION):
-                from kivy.clock import Clock
-                Clock.schedule_once(lambda _: self._show_update_popup(latest, release_url))
-        except Exception:
-            pass
+        update = fetch_update(APP_VERSION)
+        if update:
+            from kivy.clock import Clock
+            latest, release_url = update
+            Clock.schedule_once(lambda _: self._show_update_popup(latest, release_url))
 
     def _version_gt(self, a, b):
-        def to_tuple(v):
-            try:
-                return tuple(int(x) for x in v.split('.'))
-            except ValueError:
-                return (0,)
-        return to_tuple(a) > to_tuple(b)
+        return version_gt(a, b)
 
     def _show_update_popup(self, new_version, release_url):
         content = BoxLayout(orientation='vertical', padding=dp(16), spacing=dp(10))
@@ -391,6 +386,7 @@ class TaskApp(App):
                 return
             raw_tags = [t.strip() for t in tags_input.text.split(',') if t.strip()]
             data = {
+                **(task or {}),
                 'text':     text,
                 'done':     task['done'] if task else False,
                 'priority': label_to_pri[priority_spinner.text],
@@ -404,7 +400,9 @@ class TaskApp(App):
                 self.tasks[idx] = data
             else:
                 self.tasks.append(data)
-            self._save()
+            if not self._save():
+                self._render()
+                return
             self._render()
             popup.dismiss()
 
@@ -426,6 +424,8 @@ class TaskApp(App):
         scroll.add_widget(sub_layout)
 
         def refresh_subs():
+            nonlocal task
+            task = self.tasks[task_idx]
             sub_layout.clear_widgets()
             for si, sub in enumerate(task.get('subtasks', [])):
                 row = BoxLayout(size_hint_y=None, height=dp(42), spacing=dp(4))
@@ -824,22 +824,32 @@ class TaskApp(App):
     # ── 永続化 ────────────────────────────────────────────────
 
     def _load(self):
-        if os.path.exists(TASKS_FILE):
-            with open(TASKS_FILE, encoding='utf-8') as f:
-                tasks = json.load(f)
-            for t in tasks:
-                t.setdefault('priority', 'medium')
-                t.setdefault('due', '')
-                t.setdefault('category', '')
-                t.setdefault('tags', [])
-                t.setdefault('repeat', 'none')
-                t.setdefault('subtasks', [])
-            return tasks
-        return []
+        return self.store.load()
 
     def _save(self):
-        with open(TASKS_FILE, 'w', encoding='utf-8') as f:
-            json.dump(self.tasks, f, ensure_ascii=False)
+        try:
+            self.store.save(self.tasks)
+        except (StorageError, OSError, ValueError) as exc:
+            # Every UI mutation goes through here. Roll back failed writes in memory too.
+            self.tasks[:] = copy.deepcopy(self._saved_tasks)
+            self._storage_message(str(exc))
+            return False
+        self._saved_tasks = copy.deepcopy(self.tasks)
+        return True
+
+    def _storage_message(self, message):
+        from kivy.clock import Clock
+        def show(_):
+            content = BoxLayout(orientation='vertical', padding=dp(12), spacing=dp(8))
+            label = Label(text=message, halign='left', valign='middle', font_size=dp(14))
+            label.bind(size=label.setter('text_size'))
+            content.add_widget(label)
+            close = Button(text='閉じる', size_hint_y=None, height=dp(44))
+            content.add_widget(close)
+            popup = Popup(title='データ保存', content=content, size_hint=(0.9, 0.6))
+            close.bind(on_press=lambda _: popup.dismiss())
+            popup.open()
+        Clock.schedule_once(show)
 
 
 if __name__ == '__main__':
