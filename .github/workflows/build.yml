@@ -13,7 +13,7 @@ permissions:
 
 concurrency:
   group: apk-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
 jobs:
   test:
